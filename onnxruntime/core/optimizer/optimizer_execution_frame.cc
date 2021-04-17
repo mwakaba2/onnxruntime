@@ -19,15 +19,16 @@ namespace onnxruntime {
 
 OptimizerExecutionFrame::Info::Info(const std::vector<const Node*>& nodes,
                                     const InitializedTensorSet& initialized_tensor_set,
-                                    const Path& model_path,
+                                    const GraphViewer& graph_viewer,
                                     const IExecutionProvider& execution_provider)
-    : execution_provider_(execution_provider) {
+    : graph_viewer_(graph_viewer), execution_provider_(execution_provider) {
   allocator_ptr_ = execution_provider_.GetAllocator(device_id_, mem_type_);
   ORT_ENFORCE(allocator_ptr_, "Failed to get allocator for optimizer");
 
   data_transfer_mgr_.RegisterDataTransfer(std::make_unique<CPUDataTransfer>());
 
   // Create MLValues related maps
+  const Path& model_path = graph_viewer.GetGraph().ModelPath();
   auto initialize_maps = [this, &initialized_tensor_set, &model_path](const NodeArg& arg, size_t /*index*/) -> Status {
     int idx = ort_value_name_idx_map_.Add(arg.Name());
     ort_value_idx_nodearg_map_[idx] = &arg;
@@ -65,14 +66,16 @@ OptimizerExecutionFrame::Info::Info(const std::vector<const Node*>& nodes,
 
 OptimizerExecutionFrame::Info::Info(const std::vector<const Node*>& nodes,
                                     const std::unordered_map<std::string, OrtValue>& initialized_tensor_set,
-                                    const Path& model_path,
-                                    const IExecutionProvider& execution_provider) : execution_provider_(execution_provider) {
+                                    const GraphViewer& graph_viewer,
+                                    const IExecutionProvider& execution_provider) 
+  : graph_viewer_(graph_viewer), execution_provider_(execution_provider) {
   allocator_ptr_ = execution_provider_.GetAllocator(device_id_, mem_type_);
   ORT_ENFORCE(allocator_ptr_, "Failed to get allocator for optimizer");
 
   data_transfer_mgr_.RegisterDataTransfer(std::make_unique<CPUDataTransfer>());
 
   // Create MLValues related maps
+  const Path& model_path = graph_viewer.GetGraph().ModelPath();
   auto initialize_maps = [this, &initialized_tensor_set, &model_path](const NodeArg& arg, size_t /*index*/) -> Status {
     (void)model_path;
     int idx = ort_value_name_idx_map_.Add(arg.Name());
@@ -117,7 +120,7 @@ OptimizerExecutionFrame::OptimizerExecutionFrame(const Info& info,
                                                  const std::vector<OrtValue>& fetches)
     : IExecutionFrame(info.GetMLValueNameIdxMap(), info.GetNodeIndexInfo(), fetch_mlvalue_idxs),
       info_(info) {
-  Init(std::vector<int>(), std::vector<OrtValue>(), info.GetInitializers(), fetches);
+  Init(std::vector<int>(), std::vector<OrtValue>(), info.GetInitializers(), info.GetGraphViewer(), fetches);
 }
 
 AllocatorPtr OptimizerExecutionFrame::GetAllocatorImpl(const OrtMemoryInfo& info) const {
@@ -127,6 +130,11 @@ AllocatorPtr OptimizerExecutionFrame::GetAllocatorImpl(const OrtMemoryInfo& info
 Status OptimizerExecutionFrame::CopyTensor(const Tensor& src, Tensor& dest) const {
   return info_.GetDataTransferManager().CopyTensor(src, dest);
 }
+
+const DataTransferManager& OptimizerExecutionFrame::GetDataTransferManager() const {
+  return info_.GetDataTransferManager();
+}
+
 
 // This method is not thread safe!
 // Return S_OK and nullptr if index map to an value that is an unused optional input/output

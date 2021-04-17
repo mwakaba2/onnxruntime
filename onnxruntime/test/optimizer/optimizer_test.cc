@@ -66,7 +66,8 @@ TEST(OptimizerTest, Basic) {
 
   std::unique_ptr<CPUExecutionProvider> cpu_execution_provider =
       std::make_unique<CPUExecutionProvider>(CPUExecutionProviderInfo());
-  OptimizerExecutionFrame::Info info(nodes, initialized_tensor_set, graph.ModelPath(), *cpu_execution_provider.get());
+  GraphViewer graph_viewer(graph);
+  OptimizerExecutionFrame::Info info(nodes, initialized_tensor_set, graph_viewer, *cpu_execution_provider.get());
   std::vector<int> fetch_mlvalue_idxs{info.GetMLValueIndex("out")};
   OptimizerExecutionFrame frame(info, fetch_mlvalue_idxs);
   const logging::Logger& logger = DefaultLoggingManager().DefaultLogger();

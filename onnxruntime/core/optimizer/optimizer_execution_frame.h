@@ -22,22 +22,23 @@ class OptimizerExecutionFrame final : public IExecutionFrame {
    public:
     Info(const std::vector<const Node*>& nodes,
          const InitializedTensorSet& initialized_tensor_set,
-         const Path& model_path,
+         const GraphViewer& graph_viewer,
          const IExecutionProvider& execution_provider);
     Info(const std::vector<const Node*>& nodes,
          const std::unordered_map<std::string, OrtValue>& initialized_tensor_set,
-         const Path& model_path,
+         const GraphViewer& graph_viewer,
          const IExecutionProvider& execution_provider);
     ~Info() {
       for (auto& kvp : deleter_for_initialized_tensors_) {
         kvp.second.f(kvp.second.param);
       }
     }
+
     AllocatorPtr GetAllocator(const OrtMemoryInfo& info) const {
       return execution_provider_.GetAllocator(info.id, info.mem_type);
     }
 
-    AllocatorPtr GetAllocator() const {
+    const AllocatorPtr& GetAllocator() const {
       return allocator_ptr_;
     }
 
@@ -59,6 +60,8 @@ class OptimizerExecutionFrame final : public IExecutionFrame {
 
     const DataTransferManager& GetDataTransferManager() const { return data_transfer_mgr_; }
 
+    const GraphViewer& GetGraphViewer() const { return graph_viewer_; }
+
    private:
     // The optimizer is running on CPU execution provider by default.
     const int device_id_{0};
@@ -74,6 +77,7 @@ class OptimizerExecutionFrame final : public IExecutionFrame {
     // munmap memory region and close file descriptor
     std::unordered_map<int, OrtCallback> deleter_for_initialized_tensors_;
     std::unique_ptr<NodeIndexInfo> node_index_info_;
+    const GraphViewer& graph_viewer_;
     const IExecutionProvider& execution_provider_;
 
     ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(Info);
@@ -93,6 +97,8 @@ class OptimizerExecutionFrame final : public IExecutionFrame {
   Status CreateNodeOutputMLValueImpl(OrtValue& ort_value, int ort_value_idx, const TensorShape* shape, size_t nnz) override;
 
   Status CopyTensor(const Tensor& src, Tensor& dest) const override;
+
+  const DataTransferManager& GetDataTransferManager() const override;
 
   const Info& info_;
 };

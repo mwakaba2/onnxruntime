@@ -114,7 +114,6 @@ inline bool HasTensorType(const ONNX_NAMESPACE::TypeProto& type_proto) {
 
 inline bool HasElemType(const ONNX_NAMESPACE::TypeProto_Tensor& ten_proto) {
   return ten_proto.elem_type() != ONNX_NAMESPACE::TensorProto::UNDEFINED;
-  ;
 }
 
 inline bool HasShape(const ONNX_NAMESPACE::TypeProto_Tensor& ten_proto) {
@@ -122,9 +121,41 @@ inline bool HasShape(const ONNX_NAMESPACE::TypeProto_Tensor& ten_proto) {
   return ten_proto.has_shape();
 }
 
+inline bool HasSparseTensorType(const ONNX_NAMESPACE::TypeProto& type_proto) {
+  return type_proto.value_case() == ONNX_NAMESPACE::TypeProto::kSparseTensorType;
+}
+
 inline bool HasShape(const ONNX_NAMESPACE::TypeProto_SparseTensor& ten_proto) {
   // XXX: Figure out how do in proto3
   return ten_proto.has_shape();
+}
+
+inline bool HasElemType(const ONNX_NAMESPACE::TypeProto_SparseTensor& ten_proto) {
+  return ten_proto.elem_type() != ONNX_NAMESPACE::TensorProto::UNDEFINED;
+}
+
+inline bool HasShape(const ONNX_NAMESPACE::TypeProto& type_proto) {
+  if (HasTensorType(type_proto) && HasShape(type_proto.tensor_type())) {
+    return true;
+  }
+  return HasSparseTensorType(type_proto) && HasShape(type_proto.sparse_tensor_type());
+}
+
+inline bool HasElementType(const ONNX_NAMESPACE::TypeProto& type_proto) {
+  if (HasTensorType(type_proto) && HasElemType(type_proto.tensor_type())) {
+    return true;
+  }
+  return HasSparseTensorType(type_proto) && HasElemType(type_proto.sparse_tensor_type());
+}
+
+inline const ONNX_NAMESPACE::TensorShapeProto& GetShape(const ONNX_NAMESPACE::TypeProto& type_proto) {
+  if (HasTensorType(type_proto) && HasShape(type_proto.tensor_type())) {
+    return type_proto.tensor_type().shape();
+  }
+  if (HasSparseTensorType(type_proto) && HasShape(type_proto.sparse_tensor_type())) {
+    type_proto.sparse_tensor_type().shape();
+  }
+  ORT_ENFORCE(false, "TypeProto must have shape for this to run");
 }
 
 inline bool HasRawData(const ONNX_NAMESPACE::TensorProto& ten_proto) {
@@ -151,10 +182,6 @@ inline bool HasName(const ONNX_NAMESPACE::TensorProto& ten_proto) {
 
 inline bool HasElemType(const ONNX_NAMESPACE::TypeProto_Sequence& seq_proto) {
   return seq_proto.elem_type().value_case() != ONNX_NAMESPACE::TypeProto::VALUE_NOT_SET;
-}
-
-inline bool HasElemType(const ONNX_NAMESPACE::TypeProto_SparseTensor& ten_proto) {
-  return ten_proto.elem_type() != ONNX_NAMESPACE::TensorProto::UNDEFINED;
 }
 
 inline bool HasName(const ONNX_NAMESPACE::SparseTensorProto& ten_proto) {

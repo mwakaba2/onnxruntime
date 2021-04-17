@@ -10,6 +10,7 @@
 #include "core/framework/sequential_execution_plan.h"
 #include "core/framework/ort_value_pattern_planner.h"
 #include "core/framework/tensorprotoutils.h"
+#include "core/util/sparse_utils.h"
 #include "core/framework/node_index_info.h"
 #include "core/framework/op_kernel.h"
 #include "core/framework/session_state.h"
@@ -28,7 +29,8 @@ IExecutionFrame::IExecutionFrame(const OrtValueNameIdxMap& ort_value_idx_map,
                                  const std::vector<int>& fetch_mlvalue_idxs)
     : node_index_info_(node_index_info),
       all_values_size_(static_cast<size_t>(ort_value_idx_map.MaxIdx()) + 1),
-      fetch_mlvalue_idxs_(fetch_mlvalue_idxs) {
+      fetch_mlvalue_idxs_(fetch_mlvalue_idxs),
+      ort_value_idx_map_(ort_value_idx_map) {
   ORT_ENFORCE(node_index_info_.GetMaxMLValueIdx() == ort_value_idx_map.MaxIdx(),
               "node_index_info and ort_value_idx_map are out of sync and cannot be used");
 }
@@ -150,6 +152,14 @@ Status IExecutionFrame::GetOrCreateNodeOutputMLValue(const int output_index, int
         ORT_ENFORCE(shape && tensor.Shape() == *shape,
                     "OrtValue shape verification failed. Current shape:", tensor.Shape(),
                     " Requested shape:", shape ? shape->ToString() : "null");
+      } else if (p_ort_value->IsSparseTensor()) {
+        const SparseTensor& sp_tensor = p_ort_value->Get<SparseTensor>();
+        ORT_ENFORCE(shape && sp_tensor.Shape() == *shape,
+                    "OrtValue shape verification failed. Current shape:", sp_tensor.Shape(),
+                    " Requested shape:", shape ? shape->ToString() : "null");
+        ORT_ENFORCE(nnz == sp_tensor.NumValues(),
+                    "OrtValues nnz verification failed. Current nnz:", sp_tensor.NumValues(),
+                    " Requested nnz:", nnz);
       }
     } else {
       // shape is nullptr for traditional ML output values
@@ -200,12 +210,15 @@ int IExecutionFrame::GetNodeIdxToMLValueIdx(int index) const {
 
 void IExecutionFrame::Init(const std::vector<int>& feed_mlvalue_idxs, const std::vector<OrtValue>& feeds,
                            const std::unordered_map<int, OrtValue>& initializers,
+                           const GraphViewer& graph_viewer,
                            const std::vector<OrtValue>& fetches) {
   ORT_ENFORCE(feeds.size() == feed_mlvalue_idxs.size());
   ORT_ENFORCE(fetches.empty() || fetches.size() == fetch_mlvalue_idxs_.size());
 
   // 1. resize the all_value_ vector
   all_values_.resize(all_values_size_);
+  OrtMemoryInfo cpu_mem_info("Cpu", OrtDeviceAllocator);
+  AllocatorPtr cpu_allocator = GetAllocator(cpu_mem_info);
 
   // 2. Handle non-empty output vector
   if (!fetches.empty()) {
@@ -238,21 +251,37 @@ void IExecutionFrame::Init(const std::vector<int>& feed_mlvalue_idxs, const std:
     //   - update optimizers to not convert something to an initializer that is a graph output
     //     (e.g. constant folding)
     if (IsOutput(ort_value_index)) {
+      std::string name;
+      ORT_THROW_IF_ERROR(ort_value_idx_map_.GetName(ort_value_index, name));
+      const bool is_sparse_initializer = graph_viewer.GetGraph().IsSparseInitializer(name);
       const Tensor& src = entry.second.Get<Tensor>();  // all initializers in ONNX are tensors
       OrtValue& dest = all_values_[ort_value_index];
 
-      if (!dest.IsAllocated()) {
-        // NOTE: This doesn't need to support ExecutionFrame custom allocators as they only come into play
-        // for a subgraph with an output of unknown shape that needs to be accumulated by the control flow node.
-        // If the initializer is providing the output, the shape is known.
+      if (is_sparse_initializer) {
+        if (!dest.IsAllocated()) {
+          auto p_tensor = std::make_unique<SparseTensor>();
+          auto ml_tensor = DataTypeImpl::GetType<SparseTensor>();
+          dest.Init(p_tensor.release(), ml_tensor, ml_tensor->GetDeleteFunc());
+        }
+
+        // Outputting Csr format.
         AllocatorPtr allocator = GetAllocator(src.Location());
+        ORT_THROW_IF_ERROR(sparse_utils::DenseTensorToSparseCsr(GetDataTransferManager(), src,
+                                                                cpu_allocator, allocator,
+                                                                *dest.GetMutable<SparseTensor>()));
+      } else {
+        if (!dest.IsAllocated()) {
+          // NOTE: This doesn't need to support ExecutionFrame custom allocators as they only come into play
+          // for a subgraph with an output of unknown shape that needs to be accumulated by the control flow node.
+          // If the initializer is providing the output, the shape is known.
+          AllocatorPtr allocator = GetAllocator(src.Location());
 
-        auto p_tensor = std::make_unique<Tensor>(src.DataType(), src.Shape(), allocator);
-        auto ml_tensor = DataTypeImpl::GetType<Tensor>();
-        dest.Init(p_tensor.release(), ml_tensor, ml_tensor->GetDeleteFunc());
+          auto p_tensor = std::make_unique<Tensor>(src.DataType(), src.Shape(), allocator);
+          auto ml_tensor = DataTypeImpl::GetType<Tensor>();
+          dest.Init(p_tensor.release(), ml_tensor, ml_tensor->GetDeleteFunc());
+        }
+        ORT_THROW_IF_ERROR(CopyTensor(src, *dest.GetMutable<Tensor>()));
       }
-
-      ORT_THROW_IF_ERROR(CopyTensor(src, *dest.GetMutable<Tensor>()));
     } else {
       all_values_[ort_value_index] = entry.second;
     }
@@ -299,7 +328,7 @@ ExecutionFrame::ExecutionFrame(const std::vector<int>& feed_mlvalue_idxs, const 
       session_state_(session_state),
       mem_patterns_(nullptr),
       planner_(nullptr) {
-  Init(feed_mlvalue_idxs, feeds, session_state.GetInitializedTensors(), fetches);
+  Init(feed_mlvalue_idxs, feeds, session_state.GetInitializedTensors(), session_state.GetGraphViewer(), fetches);
 #if !defined(ORT_MINIMAL_BUILD) && defined(ORT_MEMORY_PROFILE)
   MemoryInfo::IncreaseIteration();
 #endif
@@ -405,6 +434,10 @@ ExecutionFrame::~ExecutionFrame() = default;
 
 Status ExecutionFrame::CopyTensor(const Tensor& src, Tensor& dest) const {
   return session_state_.GetDataTransferMgr().CopyTensor(src, dest);
+}
+
+const DataTransferManager& ExecutionFrame::GetDataTransferManager() const {
+  return session_state_.GetDataTransferMgr();
 }
 
 Status ExecutionFrame::AllocateMLValueTensorSelfOwnBuffer(OrtValue& ort_value, int ort_value_index,
