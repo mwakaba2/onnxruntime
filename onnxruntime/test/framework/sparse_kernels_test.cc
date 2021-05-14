@@ -675,8 +675,6 @@ static NodeProto CreateConstantNode(bool indices_1D,
   TensorProto& indices_tp = *stp.mutable_indices();
 
   stp.mutable_dims()->Add(shape.cbegin(), shape.cend());
-  for (auto dim : stp.dims())
-    std::cout << dim;
 
   if (indices_1D) {
     indices = {2, 5, 6, 10};
@@ -1237,6 +1235,11 @@ TEST(SparseTensorConversionTests, CsrConversion) {
       1, 0, 1,
       0, 0, 0};
 
+  std::vector<int32_t> dense_data_all_zeros = {
+      0, 0, 0,
+      0, 0, 0,
+      0, 0, 0};
+
   const std::vector<int32_t> expected_values = {1, 1, 1};
   const std::vector<int64_t> expected_inner = {2, 0, 2};
   const std::vector<int64_t> expected_outer = {0, 1, 3, 3};
@@ -1306,6 +1309,32 @@ TEST(SparseTensorConversionTests, CsrConversion) {
     auto dense_dst_data = cpu_dense_dst.DataAsSpan<int32_t>();
     ASSERT_EQ(dense_dst_data.size(), dense_data.size());
     ASSERT_TRUE(std::equal(dense_dst_data.cbegin(), dense_dst_data.cend(), dense_data.cbegin(), dense_data.cend()));
+  }
+  {
+    // Test cases when it is all zeros
+    Tensor dense_cpu_src_all_zeros(DataTypeImpl::GetType<int32_t>(), dense_shape, dense_data_all_zeros.data(), cpu_allocator->Info());
+    SparseTensor sparse_dst;
+    ASSERT_STATUS_OK(sparse_utils::DenseTensorToSparseCsr(dtm, dense_cpu_src_all_zeros, cpu_allocator, cuda_allocator, sparse_dst));
+    ASSERT_EQ(sparse_dst.FormatFlags(), SparseFormatFlags::kCsrc);
+    ASSERT_EQ(dense_cpu_src.DataType(), sparse_dst.DataType());
+    ASSERT_EQ(dense_cpu_src.Shape(), sparse_dst.Shape());
+    const SparseCsrcFormatRep* rep = sparse_dst.GetRep<SparseCsrcFormatRep>();
+    auto inner_indices = rep->Inner().DataAsSpan<int64_t>();
+    ASSERT_TRUE(inner_indices.empty());
+    auto outer_indices = rep->Outer().DataAsSpan<int64_t>();
+    ASSERT_TRUE(outer_indices.empty());
+
+    Tensor gpu_dense_dst;
+    ASSERT_STATUS_OK(sparse_utils::SparseCsrToDenseTensor(dtm, sparse_dst, cpu_allocator, cuda_allocator, gpu_dense_dst));
+    ASSERT_EQ(gpu_dense_dst.DataType(), sparse_dst.DataType());
+    ASSERT_EQ(gpu_dense_dst.Shape(), sparse_dst.Shape());
+
+    // Make a copy for examination
+    Tensor cpu_dense_dst(gpu_dense_dst.DataType(), gpu_dense_dst.Shape(), cpu_allocator);
+    ASSERT_STATUS_OK(dtm.CopyTensor(gpu_dense_dst, cpu_dense_dst));
+    auto dense_dst_data = cpu_dense_dst.DataAsSpan<int32_t>();
+    ASSERT_EQ(dense_dst_data.size(), dense_data_all_zeros.size());
+    ASSERT_TRUE(std::equal(dense_dst_data.cbegin(), dense_dst_data.cend(), dense_data_all_zeros.cbegin(), dense_data_all_zeros.cend()));
   }
 #endif
 }

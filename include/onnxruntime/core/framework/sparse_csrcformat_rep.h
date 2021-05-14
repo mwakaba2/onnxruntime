@@ -104,7 +104,7 @@ class SparseCsrcBuilder {
 
 template <>
 inline const SparseCsrcFormatRep* SparseTensor::GetRep<SparseCsrcFormatRep>() const {
-  ORT_ENFORCE(IsSet(format_flags_, SparseFormatFlags::kCsrc), "Expecting CSR or CRC format");
+  ORT_ENFORCE(IsSet(format_flags_, SparseFormatFlags::kCsrc), "Expecting CSR(C) format");
   return static_cast<const SparseCsrcFormatRep*>(rep_.get());
 }
 
