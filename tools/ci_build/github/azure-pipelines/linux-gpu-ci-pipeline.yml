@@ -58,11 +58,13 @@ jobs:
     parameters:
       condition: 'succeeded'
 
-- job: Linux_Build
+- job: Linux_Test
   timeoutInMinutes: 180
   workspace:
     clean: all
   pool: onnxruntimecentos7gpu
+  dependsOn:
+  - Linux_Build
   steps:
   - checkout: self
     submodules: false
