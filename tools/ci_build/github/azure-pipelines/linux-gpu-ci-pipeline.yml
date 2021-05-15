@@ -73,7 +73,7 @@ jobs:
     inputs:
       buildType: 'current'
       artifactName: 'drop-linux'
-      targetPath: '$(Build.BinariesDirectory)'
+      targetPath: '$(Build.BinariesDirectory)/Release'
       
   - task: CmdLine@2
     inputs:
