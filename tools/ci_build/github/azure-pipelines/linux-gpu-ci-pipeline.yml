@@ -30,7 +30,7 @@ jobs:
           -e NIGHTLY_BUILD \
           -e BUILD_BUILDNUMBER \
           onnxruntimecuda11build \
-            /opt/python/cp37-cp37m/bin/python3 /onnxruntime_src/tools/ci_build/build.py \
+            /opt/python/cp36-cp36m/bin/python3 /onnxruntime_src/tools/ci_build/build.py \
               --build_dir /build --cmake_generator Ninja \
               --config Release --update --build \
               --skip_submodule_sync \
@@ -39,7 +39,7 @@ jobs:
               --build_wheel \
               --enable_onnx_tests --use_cuda --cuda_version=11.0 --cuda_home=/usr/local/cuda-11.0 --cudnn_home=/usr/local/cuda-11.0 \
               --enable_pybind --build_java --build_nodejs \
-              --cmake_extra_defines CMAKE_CUDA_HOST_COMPILER=/opt/rh/devtoolset-8/root/usr/bin/cc  PYTHON_INCLUDE_DIR=/opt/python/cp37-cp37m/include/python3.7m PYTHON_LIBRARY=/usr/lib64/librt.so CMAKE_CUDA_ARCHITECTURES=75
+              --cmake_extra_defines CMAKE_CUDA_HOST_COMPILER=/opt/rh/devtoolset-8/root/usr/bin/cc  PYTHON_INCLUDE_DIR=/opt/python/cp36-cp36m/include/python3.6m PYTHON_LIBRARY=/usr/lib64/librt.so CMAKE_CUDA_ARCHITECTURES=75
       workingDirectory: $(Build.SourcesDirectory)
 
   - task: CmdLine@2
@@ -78,7 +78,9 @@ jobs:
   - task: CmdLine@2
     inputs:
       script: |
-        python3 /onnxruntime_src/tools/ci_build/build.py \
+         python3 -m pip uninstall -y onnxruntime -qq
+         python3 -m pip install $(Build.BinariesDirectory)/dist/*.whl
+         python3 $(Build.SourcesDirectory)/tools/ci_build/build.py \
               --build_dir /build --cmake_generator Ninja \
               --config Release --test \
               --skip_submodule_sync \
