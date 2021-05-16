@@ -21,7 +21,7 @@ jobs:
   - task: CmdLine@2
     inputs:
       script: |
-         python3 -m pip uninstall -y onnxruntime -qq
+         python3 -m pip uninstall -y onnxruntime-gpu -qq
          python3 -m pip install $(Build.BinariesDirectory)/Release/dist/*.whl
          python3 $(Build.SourcesDirectory)/tools/ci_build/build.py \
               --build_dir $(Build.BinariesDirectory) --cmake_generator Ninja \
