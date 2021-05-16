@@ -14,7 +14,7 @@ jobs:
       project: '2a773b67-e88b-4c7f-9fc0-87d31fea8ef2'
       definition: 12
       buildVersionToDownload: specific
-      pipelineId: 390623
+      pipelineId: 390681
       artifactName: 'drop-linux'
       targetPath: '$(Build.BinariesDirectory)/Release'
       
