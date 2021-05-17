@@ -58,13 +58,11 @@ class QuantizeHelper:
 
     @staticmethod
     def quantize_onnx_model(onnx_model_path, quantized_model_path, use_external_data_format=False):
-        from onnxruntime.quantization import quantize, QuantizationMode
+        from onnxruntime.quantization import quantize_dynamic, QuantizationMode
         logger.info(f'Size of full precision ONNX model(MB):{os.path.getsize(onnx_model_path)/(1024*1024)}')
-        onnx_opt_model = onnx.load_model(onnx_model_path)
-        quantized_onnx_model = quantize(onnx_opt_model,
-                                        quantization_mode=QuantizationMode.IntegerOps,
-                                        symmetric_weight=True,
-                                        force_fusions=True)
+        # model is saved after dynamic quantization is applied in the quantize_dynamic function
+        quantized_onnx_model = quantize_dynamic(model_input=onnx_model_path,
+                                                model_output=quantized_model_path)
 
         if use_external_data_format:
             from pathlib import Path
@@ -72,8 +70,7 @@ class QuantizeHelper:
             onnx.external_data_helper.convert_model_to_external_data(quantized_onnx_model,
                                                                      all_tensors_to_one_file=True,
                                                                      location=Path(quantized_model_path).name + ".data")
-        onnx.save_model(quantized_onnx_model, quantized_model_path)
 
         logger.info(f"quantized model saved to:{quantized_model_path}")
-        #TODO: inlcude external data in total model size.
+        #TODO: include external data in total model size.
         logger.info(f'Size of quantized ONNX model(MB):{os.path.getsize(quantized_model_path)/(1024*1024)}')
