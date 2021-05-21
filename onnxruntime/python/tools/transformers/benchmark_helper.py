@@ -32,7 +32,7 @@ class Precision(Enum):
 
 IO_BINDING_DATA_TYPE_MAP = {
     "float32": numpy.float32,
-    # TODO: Add more. 
+    # TODO: Add more.
 }
 def create_onnxruntime_session(onnx_model_path,
                                use_gpu,
@@ -53,9 +53,10 @@ def create_onnxruntime_session(onnx_model_path,
         if enable_profiling:
             sess_options.enable_profiling = True
 
-        if num_threads > 0:
-            sess_options.intra_op_num_threads = num_threads
-            logger.debug(f"Session option: intra_op_num_threads={sess_options.intra_op_num_threads}")
+        # NOTE: Don't set intra_op_num_threads when using OPENMP
+        # if num_threads > 0:
+        #     sess_options.intra_op_num_threads = num_threads
+        #     logger.debug(f"Session option: intra_op_num_threads={sess_options.intra_op_num_threads}")
 
         if verbose:
             sess_options.log_severity_level = 0
