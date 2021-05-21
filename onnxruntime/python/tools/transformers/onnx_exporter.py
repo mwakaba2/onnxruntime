@@ -344,6 +344,7 @@ def export_onnx_model_from_pt(model_name, opset_version, use_external_data_forma
     config, model = load_pt_model(model_name, model_class, cache_dir)
     # config, model = load_pt_model_from_tf(model_name)
     model.cpu()
+    # NOTE: model.eval() is set by default by huggingface.
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
     max_input_size = tokenizer.max_model_input_sizes[
@@ -436,13 +437,13 @@ def export_onnx_model_from_tf(model_name, opset_version, use_external_data_forma
 
     example_outputs = model(example_inputs, training=False)
     output_names = None
-    
-    # For xlnet models, only compare the last_hidden_state output. 
+
+    # For xlnet models, only compare the last_hidden_state output.
     if model_name == "xlnet-base-cased" or model_name == "xlnet-large-cased":
         output_names = ["last_hidden_state"]
         example_outputs = example_outputs["last_hidden_state"]
 
-    # Flatten is needed for gpt2 and distilgpt2. Output name sorting is needed for tf2onnx outputs to match onnx outputs. 
+    # Flatten is needed for gpt2 and distilgpt2. Output name sorting is needed for tf2onnx outputs to match onnx outputs.
     from tensorflow.python.util import nest
     example_outputs_flatten = nest.flatten(example_outputs)
 

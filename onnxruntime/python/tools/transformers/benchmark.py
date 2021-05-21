@@ -62,9 +62,11 @@ cpu_count = psutil.cpu_count(logical=False)
 
 # Set OMP environment variable before importing onnxruntime or torch.
 if "OMP_NUM_THREADS" not in os.environ:
-    os.environ["OMP_NUM_THREADS"] = str(cpu_count)
+    os.environ["OMP_NUM_THREADS"] = "1" # str(cpu_count)
+    # os.environ["OMP_WAIT_POLICY"] = 'ACTIVE'
 
 import torch
+import tensorflow as tf
 from transformers import (AutoConfig, AutoTokenizer, AutoModel, GPT2Model, LxmertConfig)
 
 
@@ -195,6 +197,7 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
 
         device = torch.device("cuda:0" if use_gpu else "cpu")
         model.to(device)
+        # NOTE: model.eval() is set by default by huggingface.
 
         if precision == Precision.INT8:
             model = QuantizeHelper.quantize_torch_model(model)
@@ -273,6 +276,7 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
     results = []
 
     import tensorflow as tf
+    print("TENSORFLOW NUMBER OF THREADS", tf.config.threading.get_intra_op_parallelism_threads())
     tf.config.threading.set_intra_op_parallelism_threads(num_threads)
 
     if not use_gpu:
@@ -291,9 +295,6 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
         except RuntimeError as e:
             logger.exception(e)
 
-    if precision == Precision.FLOAT16 or precision == Precision.INT8:
-        raise NotImplementedError("Mixed precision is currently not supported.")
-
     for model_name in model_names:
         config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
 
@@ -302,6 +303,30 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                                       cache_dir=cache_dir,
                                       custom_model_class=model_class,
                                       is_tf_model=True)
+
+        if precision == Precision.INT8 or precision == Precision.FLOAT16:
+            model._saved_model_inputs_spec = None
+            input_spec = tf.TensorSpec((1,128), tf.int32) # MAX SEQUENCE LENGTH = 128
+            model._set_save_spec(input_spec)
+
+            # Dynamic Quantization = Quantize weights AFTER training.
+            converter = tf.lite.TFLiteConverter.from_keras_model(model)
+            # Needed to convert without any unsupported errors
+            converter.target_spec.supported_ops = [
+                tf.lite.OpsSet.TFLITE_BUILTINS, # enable TensorFlow Lite ops.
+                tf.lite.OpsSet.SELECT_TF_OPS # enable TensorFlow ops.
+            ]
+            converter.optimizations = [tf.lite.Optimize.DEFAULT]
+            if precision == Precision.FLOAT16:
+                converter.target_spec.supported_types = [tf.float16]
+
+            tflite_quant_model = converter.convert()
+
+            # save model
+            tflite_model_path = 'tflite/bert-base-uncased-quantized.tflite'
+            os.makedirs(os.path.dirname(tflite_model_path), exist_ok=True)
+            with open(tflite_model_path, 'wb') as f:
+                f.write(tflite_quant_model)
 
         tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
 
@@ -319,6 +344,18 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                 logger.info("Run Tensorflow on {} with input shape {}".format(model_name,
                                                                               [batch_size, sequence_length]))
 
+                if precision == Precision.INT8 or precision == Precision.FLOAT16:
+                    # Load the TFLite model and allocate tensors.
+                    interpreter = tf.lite.Interpreter(model_path=tflite_model_path)
+                    interpreter.allocate_tensors()
+
+                    # Get input tensors.
+                    input_details = interpreter.get_input_details()
+
+                    def tflite_forward():
+                        interpreter.set_tensor(input_details[0]['index'], input_ids)
+                        return interpreter.invoke()
+
                 import random
                 rng = random.Random()
                 values = [rng.randint(0, config.vocab_size - 1) for i in range(batch_size * sequence_length)]
@@ -333,7 +370,7 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                     @run_with_tf_optimizations(do_eager_mode=False, use_xla=False)
                     def encoder_decoder_forward():
                         return model(input_ids, decoder_input_ids=input_ids, training=False)
-                    
+
                     @run_with_tf_optimizations(do_eager_mode=False, use_xla=False)
                     def lxmert_forward():
                         feats = tf.random.normal([1, 1, config.visual_feat_dim])
@@ -341,7 +378,9 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                         return model(input_ids, visual_feats=feats, visual_pos=pos, training=False)
 
                     inference = encoder_forward
-                    if config.is_encoder_decoder:
+                    if precision == Precision.INT8 or precision == Precision.FLOAT16:
+                        inference = tflite_forward
+                    elif config.is_encoder_decoder:
                         inference = encoder_decoder_forward
                     elif isinstance(config, LxmertConfig):
                         inference = lxmert_forward
@@ -494,7 +533,7 @@ def main():
 
     setup_logger(args.verbose)
 
-    if args.precision == Precision.FLOAT16 and not args.use_gpu:
+    if args.precision == Precision.FLOAT16 and not args.use_gpu and (len(args.engines) > 1 or 'tensorflow' not in args.engines):
         logger.error("fp16 is for GPU only")
         return
 
@@ -520,6 +559,7 @@ def main():
     results = []
 
     for num_threads in args.num_threads:
+        print("TORCH NUMBER OF THREADS", torch.get_num_threads())
         torch.set_num_threads(num_threads)
         logger.debug(torch.__config__.parallel_info())
         if enable_torch or enable_torchscript:
