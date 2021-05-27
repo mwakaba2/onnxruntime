@@ -240,14 +240,14 @@ def modelclass_dispatcher(model_name, custom_model_class):
     return "AutoModel"
 
 
-def load_pretrained_model(model_name, config, cache_dir, custom_model_class, is_tf_model=False):
+def load_pretrained_model(model_name, config, cache_dir, custom_model_class, model_path, is_tf_model=False):
     model_class_name = modelclass_dispatcher(model_name, custom_model_class)
 
     if model_class_name == "GPT2ModelNoPastState":
         if is_tf_model:
-            return TFGPT2ModelNoPastState.from_pretrained(model_name, config=config, cache_dir=cache_dir)
+            return TFGPT2ModelNoPastState.from_pretrained(model_path, config=config, cache_dir=cache_dir)
         else:
-            return GPT2ModelNoPastState.from_pretrained(model_name, config=config, cache_dir=cache_dir)
+            return GPT2ModelNoPastState.from_pretrained(model_path, config=config, cache_dir=cache_dir)
 
     if is_tf_model:
         model_class_name = 'TF' + model_class_name
@@ -255,26 +255,31 @@ def load_pretrained_model(model_name, config, cache_dir, custom_model_class, is_
     transformers_module = __import__("transformers", fromlist=[model_class_name])
     model_class = getattr(transformers_module, model_class_name)
 
-    return model_class.from_pretrained(model_name, config=config, cache_dir=cache_dir)
+    return model_class.from_pretrained(model_path, config=config, cache_dir=cache_dir)
 
 
-def load_pt_model(model_name, model_class, cache_dir):
-    config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
+def load_pt_model(model_name, model_class, cache_dir, model_path):
+    config = AutoConfig.from_pretrained(model_path, cache_dir=cache_dir)
     if hasattr(config, 'return_dict'):
         config.return_dict = False
-
-    model = load_pretrained_model(model_name, config=config, cache_dir=cache_dir, custom_model_class=model_class)
-
-    return config, model
-
-
-def load_tf_model(model_name, model_class, cache_dir):
-    config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
 
     model = load_pretrained_model(model_name,
                                   config=config,
                                   cache_dir=cache_dir,
                                   custom_model_class=model_class,
+                                  model_path=model_path)
+
+    return config, model
+
+
+def load_tf_model(model_name, model_class, cache_dir, model_path):
+    config = AutoConfig.from_pretrained(model_path, cache_dir=cache_dir)
+
+    model = load_pretrained_model(model_name,
+                                  config=config,
+                                  cache_dir=cache_dir,
+                                  custom_model_class=model_class,
+                                  model_path=model_path,
                                   is_tf_model=True)
 
     return config, model
@@ -339,14 +344,14 @@ def validate_and_optimize_onnx(model_name,
 
 def export_onnx_model_from_pt(model_name, opset_version, use_external_data_format, model_type, model_class, cache_dir,
                               onnx_dir, input_names, use_gpu, precision, optimize_onnx, validate_onnx,
-                              use_raw_attention_mask, overwrite, model_fusion_statistics):
+                              use_raw_attention_mask, overwrite, model_fusion_statistics, model_path):
 
-    config, model = load_pt_model(model_name, model_class, cache_dir)
+    config, model = load_pt_model(model_name, model_class, cache_dir, model_path)
     # config, model = load_pt_model_from_tf(model_name)
     model.cpu()
     # NOTE: model.eval() is set by default by huggingface.
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, cache_dir=cache_dir)
     max_input_size = tokenizer.max_model_input_sizes[
         model_name] if model_name in tokenizer.max_model_input_sizes else 1024
 
@@ -396,19 +401,19 @@ def export_onnx_model_from_pt(model_name, opset_version, use_external_data_forma
 
 def export_onnx_model_from_tf(model_name, opset_version, use_external_data_format, model_type, model_class, cache_dir,
                               onnx_dir, input_names, use_gpu, precision, optimize_onnx, validate_onnx,
-                              use_raw_attention_mask, overwrite, model_fusion_statistics):
+                              use_raw_attention_mask, overwrite, model_fusion_statistics, model_path):
     # Use CPU to export
     import tensorflow as tf
     tf.config.set_visible_devices([], 'GPU')
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+    tokenizer = AutoTokenizer.from_pretrained(model_path, cache_dir=cache_dir)
     # Fix "Using pad_token, but it is not set yet" error.
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     max_input_size = tokenizer.max_model_input_sizes[
         model_name] if model_name in tokenizer.max_model_input_sizes else 1024
 
-    config, model = load_tf_model(model_name, model_class, cache_dir)
+    config, model = load_tf_model(model_name, model_class, cache_dir, model_path)
     model.resize_token_embeddings(len(tokenizer))
 
     example_inputs = tokenizer.encode_plus("This is a sample input",

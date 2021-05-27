@@ -60,11 +60,6 @@ from huggingface_models import MODELS, MODEL_CLASSES
 
 cpu_count = psutil.cpu_count(logical=False)
 
-# Set OMP environment variable before importing onnxruntime or torch.
-if "OMP_NUM_THREADS" not in os.environ:
-    os.environ["OMP_NUM_THREADS"] = "1" # str(cpu_count)
-    # os.environ["OMP_WAIT_POLICY"] = 'ACTIVE'
-
 import torch
 import tensorflow as tf
 from transformers import (AutoConfig, AutoTokenizer, AutoModel, GPT2Model, LxmertConfig)
@@ -72,7 +67,7 @@ from transformers import (AutoConfig, AutoTokenizer, AutoModel, GPT2Model, Lxmer
 
 def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths,
                     repeat_times, input_counts, optimize_onnx, validate_onnx, cache_dir, onnx_dir, verbose, overwrite,
-                    disable_ort_io_binding, use_raw_attention_mask, model_fusion_statistics, model_source):
+                    disable_ort_io_binding, use_raw_attention_mask, model_fusion_statistics, model_source, model_path):
     import onnxruntime
 
     results = []
@@ -95,12 +90,12 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                     onnx_model_file, is_valid_onnx_model, vocab_size, max_sequence_length = export_onnx_model_from_pt(
                         model_name, MODELS[model_name][1], MODELS[model_name][2], MODELS[model_name][3], model_class,
                         cache_dir, onnx_dir, input_names, use_gpu, precision, optimize_onnx, validate_onnx,
-                        use_raw_attention_mask, overwrite, model_fusion_statistics)
+                        use_raw_attention_mask, overwrite, model_fusion_statistics, model_path)
             if 'tf' in model_source:
                 onnx_model_file, is_valid_onnx_model, vocab_size, max_sequence_length = export_onnx_model_from_tf(
                     model_name, MODELS[model_name][1], MODELS[model_name][2], MODELS[model_name][3], model_class,
                     cache_dir, onnx_dir, input_names, use_gpu, precision, optimize_onnx, validate_onnx,
-                    use_raw_attention_mask, overwrite, model_fusion_statistics)
+                    use_raw_attention_mask, overwrite, model_fusion_statistics, model_path)
 
             if not is_valid_onnx_model:
                 continue
@@ -116,7 +111,7 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
             ort_output_names = [node_arg.name for node_arg in ort_session.get_outputs()]
             output_buffers = []
             device = "cuda" if use_gpu else "cpu"
-            config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
+            config = AutoConfig.from_pretrained(model_path, cache_dir=cache_dir)
             max_last_state_size = numpy.prod(
                 [max(batch_sizes), max(sequence_lengths),
                  max(vocab_size, config.hidden_size)])
@@ -144,6 +139,11 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
+                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
+                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
+                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
+                        "inter_op_num_threads": 1,
+                        "intra_op_num_threads": num_threads,
                     }
 
                     logger.info("Run onnxruntime on {} with input shape {}".format(model_name,
@@ -173,7 +173,7 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
 
 
 def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths, repeat_times,
-                torchscript, cache_dir, verbose):
+                torchscript, cache_dir, verbose, model_path):
     results = []
     if use_gpu and not torch.cuda.is_available():
         logger.error("Please install PyTorch with Cuda, and use a machine with GPU for testing gpu performance.")
@@ -182,9 +182,9 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
     torch.set_grad_enabled(False)
 
     for model_name in model_names:
-        config = AutoConfig.from_pretrained(model_name, torchscript=torchscript, cache_dir=cache_dir)
-        model = load_pretrained_model(model_name, config=config, cache_dir=cache_dir, custom_model_class=model_class)
-        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        config = AutoConfig.from_pretrained(model_path, torchscript=torchscript, cache_dir=cache_dir)
+        model = load_pretrained_model(model_name, config=config, cache_dir=cache_dir, custom_model_class=model_class, model_path=model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, cache_dir=cache_dir)
 
         max_input_size = tokenizer.max_model_input_sizes[
             model_name] if model_name in tokenizer.max_model_input_sizes else 1024
@@ -231,10 +231,14 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
                         "io_binding": "",
                         "model_name": model_name,
                         "inputs": 1,
-                        "threads": num_threads,
+                        "inter_op_num_threads": 1,
+                        "intra_op_num_threads": num_threads,
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
+                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
+                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
+                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
                     }
                     result.update(get_latency_result(runtimes, batch_size))
                     logger.info(result)
@@ -272,7 +276,7 @@ def run_with_tf_optimizations(do_eager_mode: bool, use_xla: bool):
 
 
 def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths,
-                   repeat_times, cache_dir, verbose):
+                   repeat_times, cache_dir, verbose, model_path):
     results = []
 
     import tensorflow as tf
@@ -296,12 +300,13 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
             logger.exception(e)
 
     for model_name in model_names:
-        config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
+        config = AutoConfig.from_pretrained(model_path, cache_dir=cache_dir)
 
         model = load_pretrained_model(model_name,
                                       config=config,
                                       cache_dir=cache_dir,
                                       custom_model_class=model_class,
+                                      model_path=model_path,
                                       is_tf_model=True)
 
         if precision == Precision.INT8 or precision == Precision.FLOAT16:
@@ -328,7 +333,7 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
             with open(tflite_model_path, 'wb') as f:
                 f.write(tflite_quant_model)
 
-        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, cache_dir=cache_dir)
 
         max_input_size = tokenizer.max_model_input_sizes[
             model_name] if model_name in tokenizer.max_model_input_sizes else 1024
@@ -402,6 +407,11 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
+                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
+                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
+                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
+                        "inter_op_num_threads": 1,
+                        "intra_op_num_threads": num_threads,
                     }
                     result.update(get_latency_result(runtimes, batch_size))
                     logger.info(result)
@@ -426,6 +436,11 @@ def parse_arguments():
                         default=["bert-base-cased", "roberta-base", "gpt2"],
                         choices=list(MODELS.keys()),
                         help="Pre-trained models in the list: " + ", ".join(MODELS.keys()))
+
+    parser.add_argument("--model-path",
+                        required=False,
+                        type=str,
+                        help="Pre-trained model path")
 
     parser.add_argument("--model_source",
                         required=False,
@@ -569,17 +584,17 @@ def main():
             if enable_torchscript:
                 results += run_pytorch(args.use_gpu, args.models, args.model_class, args.precision, num_threads,
                                        args.batch_sizes, args.sequence_lengths, args.test_times, True, args.cache_dir,
-                                       args.verbose)
+                                       args.verbose, args.model_path)
 
             if enable_torch:
                 results += run_pytorch(args.use_gpu, args.models, args.model_class, args.precision, num_threads,
                                        args.batch_sizes, args.sequence_lengths, args.test_times, False, args.cache_dir,
-                                       args.verbose)
+                                       args.verbose, args.model_path)
 
         if enable_tensorflow:
             results += run_tensorflow(args.use_gpu, args.models, args.model_class, args.precision, num_threads,
                                       args.batch_sizes, args.sequence_lengths, args.test_times, args.cache_dir,
-                                      args.verbose)
+                                      args.verbose, args.model_path)
 
         model_fusion_statistics = {}
         if enable_onnxruntime:
@@ -589,7 +604,7 @@ def main():
                                            args.batch_sizes, args.sequence_lengths, args.test_times, args.input_counts,
                                            args.optimize_onnx, args.validate_onnx, args.cache_dir, args.onnx_dir,
                                            args.verbose, args.overwrite, args.disable_ort_io_binding,
-                                           use_raw_attention_mask, model_fusion_statistics, args.model_source)
+                                           use_raw_attention_mask, model_fusion_statistics, args.model_source, args.model_path)
             except:
                 logger.error(f"Exception", exc_info=True)
 
