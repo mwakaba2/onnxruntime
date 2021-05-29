@@ -124,7 +124,7 @@ def get_latency_result(runtimes, batch_size):
 def output_details(results, csv_filename):
     with open(csv_filename, mode="a", newline='') as csv_file:
         column_names = [
-            "engine", "version", "device", "precision", "optimizer", "io_binding", "model_name", "inputs", "threads",
+            "engine", "version", "device", "precision", "optimizer", "io_binding", "model_name", "inputs",
             "batch_size", "sequence_length", "datetime", "test_times", "QPS", "average_latency_ms", "latency_variance",
             "latency_90_percentile", "latency_95_percentile", "latency_99_percentile", "OMP_NUM_THREADS", "OMP_WAIT_POLICY",
             "OMP_ENABLED", "inter_op_num_threads", "intra_op_num_threads",
@@ -141,7 +141,7 @@ def output_details(results, csv_filename):
 def output_summary(results, csv_filename, args):
     with open(csv_filename, mode="a", newline='') as csv_file:
         header_names = [
-            "model_name", "inputs", "engine", "version", "device", "precision", "optimizer", "io_binding", "threads"
+            "model_name", "inputs", "engine", "version", "device", "precision", "optimizer", "io_binding", "intra_op_num_threads",
         ]
         data_names = []
         for batch_size in args.batch_sizes:
@@ -159,7 +159,7 @@ def output_summary(results, csv_filename, args):
                             for result in results:
                                 if result["model_name"] == model_name and result["inputs"] == input_count and result[
                                         "engine"] == engine_name and result["io_binding"] == io_binding and result[
-                                            "threads"] == threads:
+                                            "intra_op_num_threads"] == threads:
                                     headers = {k: v for k, v in result.items() if k in header_names}
                                     if not row:
                                         row.update(headers)
