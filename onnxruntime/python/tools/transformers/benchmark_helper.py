@@ -126,7 +126,8 @@ def output_details(results, csv_filename):
         column_names = [
             "engine", "version", "device", "precision", "optimizer", "io_binding", "model_name", "inputs", "threads",
             "batch_size", "sequence_length", "datetime", "test_times", "QPS", "average_latency_ms", "latency_variance",
-            "latency_90_percentile", "latency_95_percentile", "latency_99_percentile"
+            "latency_90_percentile", "latency_95_percentile", "latency_99_percentile", "OMP_NUM_THREADS", "OMP_WAIT_POLICY",
+            "OMP_ENABLED", "inter_op_num_threads", "intra_op_num_threads",
         ]
 
         csv_writer = csv.DictWriter(csv_file, fieldnames=column_names)
