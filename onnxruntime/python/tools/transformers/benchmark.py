@@ -138,9 +138,9 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
-                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
-                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
-                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
+                        "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS", 'NA'),
+                        "OMP_WAIT_POLICY": os.environ.get("OMP_WAIT_POLICY", 'NA'),
+                        "OMP_ENABLED": os.environ.get("OMP_ENABLED", False),
                         "inter_op_num_threads": 1,
                         "intra_op_num_threads": num_threads,
                     }
@@ -235,9 +235,9 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
-                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
-                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
-                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
+                        "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS", 'NA'),
+                        "OMP_WAIT_POLICY": os.environ.get("OMP_WAIT_POLICY", 'NA'),
+                        "OMP_ENABLED": os.environ.get("OMP_ENABLED", False),
                     }
                     result.update(get_latency_result(runtimes, batch_size))
                     logger.info(result)
@@ -405,9 +405,9 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                         "batch_size": batch_size,
                         "sequence_length": sequence_length,
                         "datetime": str(datetime.now()),
-                        "OMP_NUM_THREADS": os.environ["OMP_NUM_THREADS"],
-                        "OMP_WAIT_POLICY": os.environ["OMP_WAIT_POLICY"],
-                        "OMP_ENABLED": os.environ["OMP_ENABLED"],
+                        "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS", 'NA'),
+                        "OMP_WAIT_POLICY": os.environ.get("OMP_WAIT_POLICY", 'NA'),
+                        "OMP_ENABLED": os.environ.get("OMP_ENABLED", False),
                         "inter_op_num_threads": 1,
                         "intra_op_num_threads": num_threads,
                     }
