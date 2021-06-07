@@ -54,6 +54,7 @@ def create_onnxruntime_session(onnx_model_path,
             sess_options.enable_profiling = True
 
         # Only set if num threads == 1 else use OPENMP variables.
+        # https://github.com/microsoft/onnxruntime/issues/3233
         if num_threads > 0:
             sess_options.intra_op_num_threads = num_threads
             logger.debug(f"Session option: intra_op_num_threads={sess_options.intra_op_num_threads}")
