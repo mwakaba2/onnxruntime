@@ -53,10 +53,10 @@ def create_onnxruntime_session(onnx_model_path,
         if enable_profiling:
             sess_options.enable_profiling = True
 
-        # NOTE: Don't set intra_op_num_threads when using OPENMP
-        # if num_threads > 0:
-        #     sess_options.intra_op_num_threads = num_threads
-        #     logger.debug(f"Session option: intra_op_num_threads={sess_options.intra_op_num_threads}")
+        # Only set if num threads == 1 else use OPENMP variables.
+        if num_threads > 0:
+            sess_options.intra_op_num_threads = num_threads
+            logger.debug(f"Session option: intra_op_num_threads={sess_options.intra_op_num_threads}")
 
         if verbose:
             sess_options.log_severity_level = 0
