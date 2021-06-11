@@ -66,13 +66,19 @@ import tensorflow as tf
 from transformers import (AutoConfig, AutoTokenizer, AutoModel, GPT2Model, LxmertConfig)
 
 
-def set_cpu_affinity(affinity_mask: set):
+def get_cpu_affinity():
     pid = os.getpid()
-    old_affinity = os.sched_getaffinity(pid)
-    print(f"Process pid {pid} WAS eligible to run on:", old_affinity)
+    affinity = os.sched_getaffinity(pid)
+    print(f"Process pid {pid} affinity is set to:", affinity)
+    return affinity
+
+def set_cpu_affinity(affinity_mask: set):
+    prev_affinity = get_cpu_affinity()
+    pid = os.getpid()
+    print(f"Process pid {pid} WAS eligible to run on:", prev_affinity)
     affinity = os.sched_setaffinity(pid, affinity_mask)
     print(f"Process pid {pid} IS NOW eligible to run on:", affinity)
-    return old_affinity
+    return prev_affinity
 
 def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths,
                     repeat_times, input_counts, optimize_onnx, validate_onnx, cache_dir, onnx_dir, verbose, overwrite,
@@ -158,7 +164,9 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                                                                                    [batch_size, sequence_length]))
                     if num_threads == 1:
                         # Update to use only one cpu for single threaded inference execution
-                        old_affinity = set_cpu_affinity(affinity_mask={0})
+                        prev_affinity = set_cpu_affinity(affinity_mask={0})
+                    else:
+                        get_cpu_affinity()
 
                     if disable_ort_io_binding:
                         result = inference_ort(ort_session, ort_inputs, result_template, repeat_times, batch_size)
@@ -179,7 +187,7 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                                                                output_buffer_max_sizes, batch_size, device, data_type)
                     if num_threads == 1:
                         # Reset to use all.
-                        set_cpu_affinity(affinity_mask=old_affinity)
+                        set_cpu_affinity(affinity_mask=prev_affinity)
 
                     logger.info(result)
                     results.append(result)
@@ -233,7 +241,10 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
                                           device=device)
                 if num_threads == 1:
                     # Update to use only one cpu for single threaded inference execution
-                    old_affinity = set_cpu_affinity(affinity_mask={0})
+                    prev_affinity = set_cpu_affinity(affinity_mask={0})
+                else:
+                    get_cpu_affinity()
+
                 try:
                     inference = torch.jit.trace(model, input_ids) if torchscript else model
                     inference(input_ids)
@@ -267,7 +278,7 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
 
                 if num_threads == 1:
                     # Reset to use all
-                    set_cpu_affinity(affinity_mask=old_affinity)
+                    set_cpu_affinity(affinity_mask=prev_affinity)
 
     return results
 
@@ -390,7 +401,10 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
 
                 if num_threads == 1:
                     # Update to use only one cpu for single threaded inference execution
-                    old_affinity = set_cpu_affinity(affinity_mask={0})
+                    prev_affinity = set_cpu_affinity(affinity_mask={0})
+                else:
+                    get_cpu_affinity()
+
                 try:
                     # Disable both for better inference perf
                     @run_with_tf_optimizations(do_eager_mode=False, use_xla=False)
@@ -448,7 +462,7 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
 
                 if num_threads == 1:
                     # Reset to use all
-                    set_cpu_affinity(affinity_mask=old_affinity)
+                    set_cpu_affinity(affinity_mask=prev_affinity)
 
     return results
 
