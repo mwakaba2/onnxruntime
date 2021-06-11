@@ -58,12 +58,21 @@ logger = logging.getLogger('')
 
 from huggingface_models import MODELS, MODEL_CLASSES
 
-cpu_count = psutil.cpu_count(logical=False)
+cpu_count = psutil.cpu_count(logical=True)
+print(f"Number of CPUs: {cpu_count}")
 
 import torch
 import tensorflow as tf
 from transformers import (AutoConfig, AutoTokenizer, AutoModel, GPT2Model, LxmertConfig)
 
+
+def set_cpu_affinity(affinity_mask: set):
+    pid = os.getpid()
+    old_affinity = os.sched_getaffinity(pid)
+    print(f"Process pid {pid} WAS eligible to run on:", old_affinity)
+    affinity = os.sched_setaffinity(pid, affinity_mask)
+    print(f"Process pid {pid} IS NOW eligible to run on:", affinity)
+    return old_affinity
 
 def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths,
                     repeat_times, input_counts, optimize_onnx, validate_onnx, cache_dir, onnx_dir, verbose, overwrite,
@@ -147,6 +156,9 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
 
                     logger.info("Run onnxruntime on {} with input shape {}".format(model_name,
                                                                                    [batch_size, sequence_length]))
+                    if num_threads == 1:
+                        # Update to use only one cpu for single threaded inference execution
+                        old_affinity = set_cpu_affinity(affinity_mask={0})
 
                     if disable_ort_io_binding:
                         result = inference_ort(ort_session, ort_inputs, result_template, repeat_times, batch_size)
@@ -165,6 +177,10 @@ def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, b
                         result = inference_ort_with_io_binding(ort_session, ort_inputs, result_template, repeat_times,
                                                                ort_output_names, ort_outputs, output_buffers,
                                                                output_buffer_max_sizes, batch_size, device, data_type)
+                    if num_threads == 1:
+                        # Reset to use all.
+                        set_cpu_affinity(affinity_mask=old_affinity)
+
                     logger.info(result)
                     results.append(result)
 
@@ -215,6 +231,9 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
                                           size=(batch_size, sequence_length),
                                           dtype=torch.long,
                                           device=device)
+                if num_threads == 1:
+                    # Update to use only one cpu for single threaded inference execution
+                    old_affinity = set_cpu_affinity(affinity_mask={0})
                 try:
                     inference = torch.jit.trace(model, input_ids) if torchscript else model
                     inference(input_ids)
@@ -245,6 +264,10 @@ def run_pytorch(use_gpu, model_names, model_class, precision, num_threads, batch
                 except RuntimeError as e:
                     logger.exception(e)
                     torch.cuda.empty_cache()
+
+                if num_threads == 1:
+                    # Reset to use all
+                    set_cpu_affinity(affinity_mask=old_affinity)
 
     return results
 
@@ -365,6 +388,9 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                 values = [rng.randint(0, config.vocab_size - 1) for i in range(batch_size * sequence_length)]
                 input_ids = tf.constant(values, shape=(batch_size, sequence_length), dtype=tf.int32)
 
+                if num_threads == 1:
+                    # Update to use only one cpu for single threaded inference execution
+                    old_affinity = set_cpu_affinity(affinity_mask={0})
                 try:
                     # Disable both for better inference perf
                     @run_with_tf_optimizations(do_eager_mode=False, use_xla=False)
@@ -419,6 +445,10 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
                     from numba import cuda
                     device = cuda.get_current_device()
                     device.reset()
+
+                if num_threads == 1:
+                    # Reset to use all
+                    set_cpu_affinity(affinity_mask=old_affinity)
 
     return results
 
