@@ -76,8 +76,9 @@ def set_cpu_affinity(affinity_mask: set):
     prev_affinity = get_cpu_affinity()
     pid = os.getpid()
     print(f"Process pid {pid} WAS eligible to run on:", prev_affinity)
-    affinity = os.sched_setaffinity(pid, affinity_mask)
-    print(f"Process pid {pid} IS NOW eligible to run on:", affinity)
+    os.sched_setaffinity(pid, affinity_mask)
+    new_affinity = os.sched_getaffinity(pid)
+    print(f"Process pid {pid} IS NOW eligible to run on:", new_affinity)
     return prev_affinity
 
 def run_onnxruntime(use_gpu, model_names, model_class, precision, num_threads, batch_sizes, sequence_lengths,
