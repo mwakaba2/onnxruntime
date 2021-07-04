@@ -345,7 +345,7 @@ def run_tensorflow(use_gpu, model_names, model_class, precision, num_threads, ba
 
         if precision == Precision.INT8 or precision == Precision.FLOAT16:
             model._saved_model_inputs_spec = None
-            input_spec = tf.TensorSpec((1,128), tf.int32) # MAX SEQUENCE LENGTH = 128
+            input_spec = tf.TensorSpec((1, sequence_lengths[0]), tf.int32) # TODO Can only take the first specified sequence length for now.
             model._set_save_spec(input_spec)
 
             # Dynamic Quantization = Quantize weights AFTER training.
